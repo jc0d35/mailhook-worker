@@ -9,6 +9,8 @@ export class DeliveryError extends Error {
   }
 }
 
+export class InvalidEmailError extends Error {}
+
 async function digest(bytes) {
   const hash = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(hash)]
@@ -20,22 +22,22 @@ async function digest(bytes) {
 export async function deliver(raw, env) {
   const config = deliveryConfiguration(env);
   if (!raw.byteLength || raw.byteLength > config.maximumBytes)
-    throw new Error('mailhook-size');
+    throw new InvalidEmailError('mailhook-size');
   const mail = await PostalMime.parse(raw, {
     maxHeadersSize: 65536,
     maxNestingDepth: 32,
     maxRfc822NestingDepth: 0,
     maxPartCount: 1000,
   });
-  if (!mail.from?.address) throw new Error('mailhook-sender');
+  if (!mail.from?.address) throw new InvalidEmailError('mailhook-sender');
   if (mail.attachments.length > 100)
-    throw new Error('mailhook-attachment-count');
+    throw new InvalidEmailError('mailhook-attachment-count');
   if (
     (mail.subject?.length ?? 0) > 1000 ||
     (mail.html?.length ?? 0) > 100000 ||
     (mail.text?.length ?? 0) > 50000
   )
-    throw new Error('mailhook-fields');
+    throw new InvalidEmailError('mailhook-fields');
   const identity = mail.messageId
     ? new TextEncoder().encode(
         `${mail.from.address.trim().toLowerCase()}\0${mail.messageId}`,

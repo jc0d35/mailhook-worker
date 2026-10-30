@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from 'miniflare';
 
-test('Cloudflare runtime delivers binary multipart near the inbound size limit', async () => {
+test('Cloudflare runtime delivers binary multipart and rejects invalid subjects', async () => {
   let files = [];
+  let posts = 0;
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
       modules: true,
@@ -17,6 +18,7 @@ test('Cloudflare runtime delivers binary multipart near the inbound size limit',
         EMAIL_WEBHOOK_API_KEY: 'synthetic-key',
       },
       outboundService: async (request) => {
+        posts++;
         const form = await request.formData();
         assert.equal(form.get('senderAddress'), 'guest@example.com');
         assert.equal(form.get('subject'), 'Runtime');
@@ -43,6 +45,13 @@ test('Cloudflare runtime delivers binary multipart near the inbound size limit',
       assert.equal(response.status, 200, await response.text());
       assert.deepEqual(files, [{ size, head: '%PDF-1.7' }]);
     }
+    const response = await runtime.dispatchFetch(
+      'http://localhost/cdn-cgi/local/email?from=guest%40example.com&to=ingest%40example.com',
+      { method: 'POST', body: `From: guest@example.com\r\nTo: ingest@example.com\r\nMessage-ID: <runtime-invalid@example.com>\r\nSubject: ${'x'.repeat(1001)}\r\n\r\nInvalid subject` },
+    );
+    assert.equal(response.status, 400);
+    assert.equal(await response.text(), 'Worker rejected email with the following reason: Invalid or unsupported email');
+    assert.equal(posts, 2);
   } finally {
     await runtime.dispose();
   }

@@ -206,6 +206,42 @@ test('refuses missing sender, excessive body fields and too many attachments bef
   assert.equal(fetch.mock.callCount(), 0);
 });
 
+test('permanently rejects known invalid email without POST or a retryable exception', async () => {
+  const fetch = mock.method(globalThis, 'fetch', async () => new Response());
+  const log = mock.method(console, 'error', () => {});
+  const parts = '--files\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment\r\n\r\n%PDF-1.7\r\n';
+  const cases = [
+    [new TextEncoder().encode('Subject: Invalid\r\n\r\nNo sender'), 'mailhook-sender'],
+    [raw('', 'x'.repeat(50001)), 'mailhook-fields'],
+    [new TextEncoder().encode(`From: guest@example.com\r\nSubject: ${'x'.repeat(1001)}\r\n\r\nHello`), 'mailhook-fields'],
+    [raw('Content-Type: multipart/mixed; boundary=files\r\n', parts.repeat(101) + '--files--\r\n'), 'mailhook-attachment-count'],
+  ];
+  for (const [bytes, reason] of cases) {
+    const rejected = [];
+    await worker.email({
+      to: env.MAILHOOK_RECIPIENT, rawSize: bytes.length,
+      raw: new Blob([bytes]).stream(), setReject: value => rejected.push(value),
+    }, env);
+    assert.deepEqual(rejected, ['Invalid or unsupported email']);
+    assert.deepEqual(JSON.parse(log.mock.calls.at(-1).arguments[0]), {
+      event: 'mailhook.failed', reason,
+    });
+  }
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
+test('backend failure remains retryable rather than permanently rejecting the email', async () => {
+  mock.method(console, 'error', () => {});
+  mock.method(globalThis, 'fetch', async () => new Response(null, { status: 503 }));
+  const bytes = raw();
+  const reject = mock.fn();
+  await assert.rejects(worker.email({
+    to: env.MAILHOOK_RECIPIENT, rawSize: bytes.length,
+    raw: new Blob([bytes]).stream(), setReject: reject,
+  }, env), /mailhook-delivery-failed/);
+  assert.equal(reject.mock.callCount(), 0);
+});
+
 test('rejects wrong recipients and excessive SMTP size before reading or posting', async () => {
   const fetch = mock.method(globalThis, 'fetch', async () => new Response());
   for (const fields of [
