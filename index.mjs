@@ -1,4 +1,4 @@
-import { deliver, DeliveryError } from './mail.mjs';
+import { deliver, DeliveryError, InvalidEmailError } from './mail.mjs';
 import { maximumBytes, recipients } from './config.mjs';
 
 export default {
@@ -26,9 +26,11 @@ export default {
           event: 'mailhook.failed',
           ...(error instanceof DeliveryError
             ? { externalId: error.externalId, reason: error.message }
-            : { reason: 'parse-or-configuration' }),
+            : { reason: error instanceof InvalidEmailError ? error.message : 'parse-or-configuration' }),
         }),
       );
+      if (error instanceof InvalidEmailError)
+        return message.setReject('Invalid or unsupported email');
       throw new Error('mailhook-delivery-failed');
     }
   },

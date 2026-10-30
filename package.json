@@ -1,6 +1,6 @@
 {
   "name": "agent-mailhook",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A configurable, stateless Cloudflare Email Worker template for authenticated email-to-webhook delivery.",
   "license": "MIT",
   "repository": {
